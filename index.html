@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -240,7 +239,7 @@
 
                 <div class="tab-content active" id="image-tab">
                     <div class="upload-area" id="uploadArea">
-                        <i>Folder</i>
+                        <i>📁</i>
                         <p>Drag & drop your image here or click to browse</p>
                         <p class="file-types">Supports: JPG, PNG, GIF, WebP</p>
                         <input type="file" id="imageInput" class="file-input" accept=".jpg,.jpeg,.png,.gif,.webp">
@@ -249,7 +248,7 @@
 
                 <div class="tab-content" id="pdf-tab">
                     <div class="upload-area" id="pdfUploadArea">
-                        <i>Document</i>
+                        <i>📄</i>
                         <p>Drag & drop your PDF here or click to browse</p>
                         <p class="file-types">Supports: PDF files</p>
                         <input type="file" id="pdfInput" class="file-input" accept=".pdf">
@@ -342,10 +341,10 @@
         </div>
 
         <div class="feature-list">
-            <div class="feature"><i>Lock</i><h3>Secure Processing</h3><p>All files are processed locally in your browser. No uploads to external servers.</p></div>
-            <div class="feature"><i>Zap</i><h3>Fast Compression</h3><p>Reduce file sizes quickly without noticeable quality loss.</p></div>
-            <div class="feature"><i>Save</i><h3>Save Storage</h3><p>Optimize files for email attachments and cloud storage.</p></div>
-            <div class="feature"><i>Phone</i><h3>Mobile Friendly</h3><p>Works perfectly on all devices and screen sizes.</p></div>
+            <div class="feature"><i>🔒</i><h3>Secure Processing</h3><p>All files are processed locally in your browser. No uploads to external servers.</p></div>
+            <div class="feature"><i>⚡</i><h3>Fast Compression</h3><p>Reduce file sizes quickly without noticeable quality loss.</p></div>
+            <div class="feature"><i>💾</i><h3>Save Storage</h3><p>Optimize files for email attachments and cloud storage.</p></div>
+            <div class="feature"><i>📱</i><h3>Mobile Friendly</h3><p>Works perfectly on all devices and screen sizes.</p></div>
         </div>
 
         <footer>
@@ -522,23 +521,43 @@
 
             function reduceFileSize() {
                 if (!originalFile) return;
+                
+                if (!validateCompressionSettings()) {
+                    return;
+                }
+                
                 loadingIndicator.style.display = 'block';
                 progressBar.style.display = 'block';
+                progress.style.width = '0%';
                 reduceButton.disabled = true;
 
                 let prog = 0;
-                const int = setInterval(() => {
-                    prog += 5;
-                    progress.style.width = `${prog}%`;
-                    if (prog >= 90) clearInterval(int);
+                const progressInterval = setInterval(() => {
+                    prog += 3;
+                    progress.style.width = `${Math.min(prog, 90)}%`;
+                    if (prog >= 90) clearInterval(progressInterval);
                 }, 100);
 
+                // Use setTimeout to allow UI to update
                 setTimeout(() => {
-                    if (currentFileType === 'image') reduceImageSize();
-                    else reducePdfSize();
-                    progress.style.width = '100%';
-                    setTimeout(() => progressBar.style.display = 'none', 500);
-                }, 1000);
+                    if (currentFileType === 'image') {
+                        reduceImageSize();
+                    } else {
+                        reducePdfSize();
+                    }
+                }, 100);
+            }
+
+            function validateCompressionSettings() {
+                if (currentFileType === 'pdf') {
+                    const dpi = parseInt(dpiSlider.value);
+                    const quality = parseInt(qualitySlider.value);
+                    
+                    if (dpi > 150 && quality > 70) {
+                        return confirm('High DPI and quality settings may result in larger files. Continue?');
+                    }
+                }
+                return true;
             }
 
             function reduceImageSize() {
@@ -547,26 +566,63 @@
                     const img = new Image();
                     img.onload = () => {
                         const maxW = parseInt(maxWidthInput.value);
+                        // Don't upscale images
                         const scale = Math.min(1, maxW / img.width);
                         const w = Math.floor(img.width * scale);
                         const h = Math.floor(img.height * scale);
 
+                        // Validate dimensions
+                        if (w <= 0 || h <= 0) {
+                            alert('Invalid dimensions after compression');
+                            loadingIndicator.style.display = 'none';
+                            reduceButton.disabled = false;
+                            return;
+                        }
+
                         const canvas = document.createElement('canvas');
-                        canvas.width = w; canvas.height = h;
+                        canvas.width = w;
+                        canvas.height = h;
                         const ctx = canvas.getContext('2d');
+                        
+                        // Use higher quality scaling for downscaling
+                        ctx.imageSmoothingQuality = 'high';
                         ctx.drawImage(img, 0, 0, w, h);
 
-                        const q = qualitySlider.value / 100;
+                        const quality = qualitySlider.value / 100;
+                        
                         canvas.toBlob(blob => {
+                            if (!blob) {
+                                alert('Error creating compressed image');
+                                loadingIndicator.style.display = 'none';
+                                reduceButton.disabled = false;
+                                return;
+                            }
+
+                            // Check if compression actually reduced size
+                            if (blob.size >= originalFileSize && quality >= 0.8) {
+                                showNotification('File size increased. Try lower quality setting.');
+                            }
+
                             reducedFile = new File([blob], originalFile.name, { type: originalFile.type });
                             finalizeReduction(blob.size);
                             previewImage.src = URL.createObjectURL(blob);
                             previewImage.style.display = 'block';
                             previewContainer.querySelector('p').style.display = 'none';
                             showNotification('Image compressed successfully!');
-                        }, originalFile.type, q);
+                            
+                        }, originalFile.type, quality);
+                    };
+                    img.onerror = () => {
+                        alert('Error loading image');
+                        loadingIndicator.style.display = 'none';
+                        reduceButton.disabled = false;
                     };
                     img.src = e.target.result;
+                };
+                reader.onerror = () => {
+                    alert('Error reading file');
+                    loadingIndicator.style.display = 'none';
+                    reduceButton.disabled = false;
                 };
                 reader.readAsDataURL(originalFile);
             }
@@ -577,37 +633,65 @@
                     const { jsPDF } = window.jspdf;
                     const pdf = new jsPDF();
                     const total = pdfDoc.numPages;
-                    const dpi = parseInt(dpiSlider.value);
-                    const q = qualitySlider.value / 100;
+                    const targetDpi = parseInt(dpiSlider.value);
+                    const quality = qualitySlider.value / 100;
+
+                    // Validate DPI - don't upscale
+                    const originalDpi = 72; // Assume standard PDF DPI
+                    const scale = Math.min(1, targetDpi / originalDpi); // Never scale up
 
                     for (let i = 1; i <= total; i++) {
                         const page = await pdfDoc.getPage(i);
-                        const scale = dpi / 72;
-                        const vp = page.getViewport({scale});
+                        const viewport = page.getViewport({ scale: 1.0 });
+                        
+                        // Calculate scale based on target DPI
+                        const scaleFactor = scale;
+                        const scaledViewport = page.getViewport({ scale: scaleFactor });
+
                         const canvas = document.createElement('canvas');
                         const ctx = canvas.getContext('2d');
-                        canvas.width = vp.width; canvas.height = vp.height;
-                        await page.render({canvasContext:ctx, viewport:vp}).promise;
+                        canvas.width = scaledViewport.width;
+                        canvas.height = scaledViewport.height;
 
-                        const imgData = canvas.toDataURL('image/jpeg', q);
+                        await page.render({
+                            canvasContext: ctx,
+                            viewport: scaledViewport
+                        }).promise;
+
+                        const imgData = canvas.toDataURL('image/jpeg', quality);
+                        
                         if (i > 1) pdf.addPage();
-                        const pdfW = pdf.internal.pageSize.getWidth();
-                        const imgH = (canvas.height * pdfW) / canvas.width;
-                        pdf.addImage(imgData, 'JPEG', 0, 0, pdfW, imgH);
+                        
+                        const pdfWidth = pdf.internal.pageSize.getWidth();
+                        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+                        
+                        // Ensure the image fits on the page
+                        const finalHeight = Math.min(pdfHeight, pdf.internal.pageSize.getHeight());
+                        
+                        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, finalHeight);
 
+                        // Update progress
                         progress.style.width = `${(i / total) * 100}%`;
                     }
 
                     const blob = pdf.output('blob');
+                    
+                    // Check if the compressed file is actually smaller
+                    if (blob.size >= originalFileSize) {
+                        showNotification('Compression resulted in larger file. Try lower quality or DPI.');
+                    }
+                    
                     reducedFile = new File([blob], originalFile.name, { type: 'application/pdf' });
                     finalizeReduction(blob.size);
                     showNotification('PDF compressed successfully!');
+                    
                 } catch (err) {
-                    console.error(err);
-                    alert('Error processing PDF.');
+                    console.error('PDF compression error:', err);
+                    alert('Error processing PDF: ' + err.message);
                 } finally {
                     loadingIndicator.style.display = 'none';
                     reduceButton.disabled = false;
+                    progressBar.style.display = 'none';
                 }
             }
 
@@ -629,33 +713,56 @@
             function shareReducedFile() {
                 if (!reducedFile) return;
 
+                // Create a clean filename for sharing
+                const shareName = customFilename.value.trim() 
+                    ? `${customFilename.value}.${fileExt}`
+                    : `compressed_${originalFile.name}`;
+
+                // Create a new File object with the proper name for sharing
+                const shareFile = new File([reducedFile], shareName, { type: reducedFile.type });
+
                 const shareData = {
-                    title: 'Reduced File',
-                    text: 'Here\'s my optimized file!',
-                    files: [reducedFile]
+                    files: [shareFile],
+                    title: 'Compressed File',
+                    text: 'Check out this compressed file!'
                 };
 
-                if (navigator.canShare && navigator.canShare(shareData)) {
-                    navigator.share(shareData).catch((err) => {
-                        console.log('Error sharing', err);
-                        downloadReducedFile();
-                    });
+                // Check if Web Share API is available and works with files
+                if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+                    navigator.share(shareData)
+                        .then(() => console.log('Share successful'))
+                        .catch((err) => {
+                            console.log('Sharing failed, falling back to download:', err);
+                            // If sharing fails, download instead
+                            downloadReducedFile();
+                        });
                 } else {
-                    downloadReducedFile();
+                    // Web Share API not available - show message and download
+                    showNotification('Sharing not supported in this browser. Downloading instead.');
+                    setTimeout(() => downloadReducedFile(), 1000);
                 }
             }
 
             function downloadReducedFile() {
                 if (!reducedFile) return;
-                const downloadName = customFilename.value.trim() ? `${customFilename.value}.${fileExt}` : reducedFile.name;
+                
+                const downloadName = customFilename.value.trim() 
+                    ? `${customFilename.value}.${fileExt}`
+                    : `compressed_${originalFile.name}`;
+                
                 const url = URL.createObjectURL(reducedFile);
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = downloadName;
+                a.style.display = 'none';
+                
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+                
+                // Clean up URL after download
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                
                 showNotification('File downloaded successfully!');
             }
 
